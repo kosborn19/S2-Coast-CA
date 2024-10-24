@@ -1,66 +1,78 @@
-/**** Start of imports. If edited, may not auto-convert in the playground. ****/
-var coast_bound = ee.FeatureCollection("users/Cade92/OPC_coastalZone"),
-    beaches = ee.FeatureCollection("users/Cade92/CARI_V1_beach"),
-    dune = ee.FeatureCollection("users/Cade92/Dune"),
-    rocky = ee.FeatureCollection("users/Cade92/Rocky"),
-    pt_beach = ee.FeatureCollection("users/Cade92/pt_beach_v1"),
-    pt_dune = ee.FeatureCollection("users/Cade92/pt_dune_v1"),
-    pt_rocky = ee.FeatureCollection("users/Cade92/pt_rocky_v1"),
-    pt_veg = ee.FeatureCollection("users/Cade92/pt_veg_v1"),
-    pt_water = ee.FeatureCollection("users/Cade92/pt_water_v1"),
-    pt_whitecap = ee.FeatureCollection("users/Cade92/pt_whitecap_v1");
-/***** End of imports. If edited, may not auto-convert in the playground. *****/
-
 // -------------------------- SCRIPT INTRODUCTION --------------------------
-// Authors: Christiana Ade and Katie Osborn
-// Last Edited: 10/23/24
-// Purpose: to build and export a random forest classifier by training on 70% of data and testing on 30% to classify coastal features from Sentinel-2 images. 
-// Steps: (1) Import training points from each habitat.
-//        (2) Make a coastal mosaic from selected tiles.
-//        (3) Sample pixel values from training points on the mosaic.
-//        (4) Split data into 70% training and 30% testing.
-//        (5) Train a random forest classifier with the training data.
-//        (6) Test the classifier by classifying the testing data. Print statistics.
-//        (7) Apply the classifier to the entire composite mosaic.
-//        (8) Export training data, testing data, and random forest decision tress for use in the next script.
+```Authors: Christiana Ade and Katie Osborn
+// Purpose: Build and export a random forest classifier by training on 70% of data and testing on 30% to classify beaches and rocky shore of the
+ California coastline from a 2022 mosaic of select Sentinel-2 images. 
+// Steps: (1) Import training points from each habitat. These points were selected using random samples of the CARI dataset and photo-interpretation. 
+//        (2) Make a coastal mosaic from previously selected tiles (list). Tiles were selected by selecting cloud free low tide images. 
+//        (3) Write functions and apply vegetation and water indexes to Sentinel-2 mosaic.
+//        (4) Sample pixel values from training points on the mosaic.
+//        (5) Split data into 70% training and 30% testing.
+//        (6) Train a random forest classifier with the training data.
+//        (7) Test the classifier by classifying the testing data. Print statistics.
+//        (8) Apply the classifier to the entire mosaic (for visualization). 
+//        (9) Export training data, testing data, and random forest decision tress for use in the next script.
 
+// User input (Below): 
+      Required: 
+        (1) Individual training data shapefiles (points) for each individual class (beach, rocky shore, vegetation, water, and white caps)
+        (2) Output data folder for saving the classifer
+        (3) Pre-selected list of Sentinel-2 images for mosaicking
+        (4) OPC boundary polygon of the coastal zone
+      Optional:
+        (1): Individual shapefiles of CARI Beaches, Dunes, and Rocky shore for visualization
+
+// Outputs (including visualizations): 
+        (1) False color infrared of Sentinel-2 mosaic (automatic display disabled)  
+        (2) Printed Confusion Matrix statistics 
+        (3) Automatic display of classification map colored by class
+         beaches (yellow), rocky shore (red), vegetation (green), water (blue), white caps (white). 
+        (4) Export training and testing partision to google drive
+        (5) Export random forest model to google drive
+
+        ```
 
 // -------------------------- USER INPUT VARIABLES --------------------------
 
 // Add a path to an output folder for training partition exports.
-var Output = 'your/folder/output/path/here'; // Change to your folder path. This is where the training
+var out_dir = 'your/folder/output/path/here'; // Change to your folder path. This is where the training
                                              // and testing partipitions will export
 
-// ----------------------- DATA PREPROCESSING -------------------------------
 
-// Load datasets and assign class values to features
+// Import training and points and visualization polygons                                             
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var coast_bound = ee.FeatureCollection("users/Cade92/OPC_coastalZone"),
+beaches = ee.FeatureCollection("users/Cade92/CARI_V1_beach"),
+rocky = ee.FeatureCollection("users/Cade92/Rocky"),
+pt_beach = ee.FeatureCollection("users/Cade92/pt_beach_v1"),
+pt_dune = ee.FeatureCollection("users/Cade92/pt_dune_v1"),
+pt_rocky = ee.FeatureCollection("users/Cade92/pt_rocky_v1"),
+pt_veg = ee.FeatureCollection("users/Cade92/pt_veg_v1"),
+pt_water = ee.FeatureCollection("users/Cade92/pt_water_v1"),
+pt_whitecap = ee.FeatureCollection("users/Cade92/pt_whitecap_v1");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// ----------------------- POINT DATA PREPROCESSING -------------------------------
+
+// Load Training Point datasets and assign class values (class_n) to features
+// Class values will then be used to identify class type in the final output classifcation
 pt_beach = pt_beach.map(function(feature) {
   return feature.set('class_n', 0);
 });
-
 pt_rocky = pt_rocky.map(function(feature) {
   return feature.set('class_n', 1);
 });
-
 pt_veg = pt_veg.map(function(feature) {
   return feature.set('class_n', 2);
 });
-
 pt_water = pt_water.map(function(feature) {
   return feature.set('class_n', 3);
 });
-
 pt_whitecap = pt_whitecap.map(function(feature) {
   return feature.set('class_n', 4);
 });
 
-pt_dune = pt_dune.map(function(feature) {
-  return feature.set('class_n', 5);
-});
-
 // ----------------------- TILE SELECTION ------------------------------------
 
-// List of selected Sentinel-2 tiles.
+// List of previously selected Sentinel-2 tiles.
 var tiles = [
   "20220224T191349_20220224T191924_T10TCM",
   "20220520T190921_20220520T191647_T10TCL",
@@ -86,7 +98,7 @@ var tiles = [
 
 // ------------------- FILTER SENTINEL-2 DATASET -----------------------------
 
-// Filter the Sentinel-2 image collection by date, selected tiles, and location
+// Filter the Sentinel-2 image collection by date, selected tiles, and filter to coastal boundary
 var S2 = ee.ImageCollection("COPERNICUS/S2_SR")
     .filterDate('2022-01-01', '2022-12-31')
     .filter(ee.Filter.inList('system:index', tiles))        
@@ -128,23 +140,24 @@ var compute_indices = function(image) {
 
 // ------------------- CREATE MOSAIC -----------------------------------------
 
-//clip mosaic of tiles to the coast and select bands
+//clip mosaic of tiles to the coast and select spectral bands
 var mosaic1 = S2.mosaic().clip(coast_bound).select('B.*');
 var imageVisParam = {"opacity":1,"bands":["B8","B4","B3"],"min":0,"max":3000,"gamma":0.5};
-Map.addLayer(mosaic1, imageVisParam, 'spatial mosaic', false);
+// visualize image mosaic 
+Map.addLayer(mosaic1, imageVisParam, 'Sentinel-2 Mosaic (NIR infrared)', false);
 
-// Generate composite image with indices
-var composite = compute_indices(mosaic1);
+// Apply with indices to mosaic 
+var s2_input_imgs = compute_indices(mosaic1);
 
 // ------------------------ CLASSIFICATION -----------------------------------
 
 // Merge feature classes into a single FeatureCollection.
-var newfc = pt_beach.merge(pt_rocky).merge(pt_veg).merge(pt_water).merge(pt_whitecap).merge(pt_dune);
+var fullfc = pt_beach.merge(pt_rocky).merge(pt_veg).merge(pt_water).merge(pt_whitecap);
 var classProperty = 'class_n';
 
-// Sample training data from composite image
-var training = composite.select(bands).sampleRegions({
-  collection: newfc,
+// Sample training data from s2_input_imgs image
+var training = s2_input_imgs.select(bands).sampleRegions({
+  collection: fullfc,
   properties: [classProperty],
   scale: 10 // Scale of 10 meters to match pixel resolution
 });
@@ -174,8 +187,8 @@ print('Kappa:', confusionMatrix.kappa().getInfo());
 print('Producers Accuracy:', confusionMatrix.producersAccuracy().getInfo());
 print('Users Accuracy:', confusionMatrix.consumersAccuracy().getInfo());
 
-// Apply classifier to the entire composite
-var classified = composite.classify(trainedClassifier);
+// Apply classifier to the entire s2_input_imgs
+var classified = s2_input_imgs.classify(trainedClassifier);
 Map.addLayer(classified, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']}, 'Classified Image');
 
 // -------------------------- EXPORT DATA ---------------------------------
@@ -183,14 +196,14 @@ Map.addLayer(classified, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'b
 // Export training and testing partitions as GeoJSON
 Export.table.toDrive({
   collection: trainingPartition,
-  folder: Output,
+  folder: out_dir,
   description: 'trainingPartition',
   fileFormat: 'GeoJSON'
 });
 
 Export.table.toDrive({
   collection: testingPartition,
-  folder: Output,
+  folder: out_dir,
   description: 'testingPartition',
   fileFormat: 'GeoJSON'
 });
@@ -203,6 +216,7 @@ Export.table.toAsset({
   description: 'RF_decision_trees'
 });
 
+// Create Function to save google earth created decision tree models
 function encodeFeatureCollection(value) {
   var string = ee.String.encodeJSON(value)
   var stringLength = string.length()
@@ -237,6 +251,5 @@ function encodeFeatureCollection(value) {
 //// Add CARI Layers to map for visual analysis
 // Map.addLayer(rocky.filterBounds(area_bound), {color: 'black'}, "rocky_bound", false )
 // Map.addLayer(beaches, {color: 'blue'}, "beaches_bound", false )
-// Map.addLayer(estuarine, {color: 'yellow'}, "est_bound", false )
 // Map.addLayer(dune, {color: 'green'}, "dune_bound", false )
 // Map.addLayer(rocky, {color: 'red'}, "rocky_bound_red", false )

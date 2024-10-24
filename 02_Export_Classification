@@ -1,3 +1,56 @@
+// -------------------------- SCRIPT INTRODUCTION --------------------------
+/* 
+// Authors: Christiana Ade and Katie Osborn
+// Purpose: This script imports the pre-trained random forest model (from 01_BuildClassifier), applies it to the CA coast, 
+         // smooths the classification, and exports the results in vector format in batches.
+// Steps: (1) Import trained classifier
+//        (2) Import boxes for batch exporting sections of the CA coast
+//        (3) Make a coastal mosaic from selected tiles
+//        (4) Apply the classifier to the CA coast
+//        (5) Smooth the classification
+//        (6) Vectorize and export with 10 different boxes (users can create new boxes)
+// 
+
+// User input (Below): 
+      Required: 
+        (1) Previously created random forest classifier
+        (2) Pre-drawn boxes of type FeatureCollection
+        (3) folder location and other variables below
+      Optional:
+        (1): Individual shapefiles of CARI Beaches, Dunes, and Rocky shore for visualization
+
+// Outputs to google drive: 
+        (1) Classification rasters with no visualzation applied (file ending: "_smoothed_noviz" )
+        (2) Classification rasters with  visualzation applied (file ending: "_smoothed_v2" )
+        (3) Polygon geojson files (file name poly.*_scale)
+   
+
+  */ 
+// -------------------------- USER INPUT VARIABLES --------------------------
+
+// Path to the decision tree asset (imported pre-trained model)
+var RF_decision_trees = 'users/yourGEEusername/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
+
+// Folder for exported results
+var out_dir = 'your/folder/output/path/here'; // Change to your folder path
+
+// Define scales for converting from raster data to vector
+    // The scale affects the precision and size of the vector features that are generated
+    // Current settings export at a scale of 5 and 10 for comparison
+var scale_list = ee.List.sequence(5, 10, 5); // list of scale values and increment
+var scale_list_str = ee.List(['5', '10']); // scale values in string format
+var scale_n = 2; // number of scales in list
+
+var box_n = 10; // number of boxes along the coast. 
+                  // NOTE: You do not need to change this unless you want to look at an area other than the CA coast
+                  // or only export certain areas.
+
+
+///
+
+// -------------------------- PRE-DEFINED BOX FEATURE COLLECTIONS --------------------------
+// These are pre-defined box areas that are drawn simply to split the coast up into different
+// sections for export. Box locations are arbitrary, but boxes must be small enough for export.
 /**** Start of imports. If edited, may not auto-convert in the playground. ****/
 var coast_bound = ee.FeatureCollection("users/Cade92/OPC_coastalZone"),
     beaches = ee.FeatureCollection("users/Cade92/CARI_V1_beach"),
@@ -174,42 +227,10 @@ var coast_bound = ee.FeatureCollection("users/Cade92/OPC_coastalZone"),
               "system:index": "0"
             })]);
 /***** End of imports. If edited, may not auto-convert in the playground. *****/
-// -------------------------- SCRIPT INTRODUCTION --------------------------
-// Authors: Christiana Ade and Katie Osborn
-// Last Edited: 10/23/24
-// Purpose: This script imports the pre-trained random forest model, applies it to the CA coast, 
-         // smooths the classification, and exports the results in vector format in batches.
-// Steps: (1) Import trained classifier
-//        (2) Import boxes for batch exporting sections of the CA coast
-//        (3) Make a coastal mosaic from selected tiles
-//        (4) Apply the classifier to the CA coast
-//        (5) Smooth the resulting classification
-//        (6) Vectorize and export with different scale sizes
-
-
-// -------------------------- USER INPUT VARIABLES --------------------------
-
-// Path to the decision tree asset (imported pre-trained model)
-var RF_decision_trees = 'users/yourGEEusername/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
-
-// Folder for exported results
-var out_folder = 'your/folder/output/path/here'; // Change to your folder path
-
-// Define scales for converting from raster data to vector
-    // The scale affects the precision and size of the vector features that are generated
-    // Current settings export at a scale of 5 and 10 for comparison
-var scale_list = ee.List.sequence(5, 10, 5); // list of scale values and increment
-var scale_list_str = ee.List(['5', '10']); // scale values in string format
-var scale_n = 2; // number of scales in list
-
-var box_n = 10; // number of boxes along the coast. 
-                  // NOTE: You do not need to change this unless you want to look at an area other than the CA coast
-                  // or only export certain areas.
 
 // Define boxes for batch exporting. You need to export by smaller areas to avoid export errors.
     // NOTE: You do not need to change this unless you want to look at an area other than the CA coast
-    // or only export certain areas.
-
+    // or only export certain areas. Name field is added for file export unique identifier, please leave the same
 var box1 = box1.map(function(feature) {
   return feature.set('name', 'area1')
 });
@@ -320,16 +341,16 @@ var imageVisParam = {"opacity":1,"bands":["B8","B4","B3"],"min":0,"max":3000,"ga
 Map.addLayer(mosaic1, imageVisParam, 'spatial mosaic', false);
 
 // Generate composite image with indices
-var composite = compute_indices(mosaic1);
+var s2_input_imgs = compute_indices(mosaic1);
 var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12', 'ndvi', 'ndwi', 'savi', 'ndwi2', 'mndwi'];
 
 // ------------------------ CLASSIFICATION -----------------------------------
 
 // Decode and apply the decision trees to classify the image
-var featureCollection = ee.FeatureCollection(RF_decision_trees);
-var decisionTrees = decodeFeatureCollection(featureCollection);
+var rfModel = ee.FeatureCollection(RF_decision_trees);
+var decisionTrees = decodeFeatureCollection(rfModel);
 var classifier = ee.Classifier.decisionTreeEnsemble(decisionTrees);
-var classification = composite.classify(classifier);
+var classification = s2_input_imgs.classify(classifier);
 Map.addLayer(classification, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']}, 'Classified Image', false);
 
 // Function to decode decision tree feature collection
@@ -349,19 +370,21 @@ function decodeFeatureCollection(featureCollection) {
 }
 
 // ------------------------ SMOOTHING AND REMAPPING --------------------------
+// Square smoothing window of 2 pixels on classifier 
+var imgSmooth = classification.focalMode(2, 'square');
+Map.addLayer(img_smooth, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']}, 'Smoothed Classification');
 
-var img_red = classification.focalMode(2, 'square');
-Map.addLayer(img_red, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']}, 'Smoothed Classification');
-
-// Remap class values for further analysis
+// Remove all classes besides beach and rocky shore 
+// Beaches pixels will change from value 0 -> 1  and rocky 1 -> 2 and all other classes will be 0.
 var fromList = [0, 1, 2, 3, 4];
 var toList = [1, 2, 0, 0, 0];
-var imgRemap = img_red.remap({from: fromList, to: toList, defaultValue: 0});
+// Apply remmapping
+var imgRemap = imgSmooth.remap({from: fromList, to: toList, defaultValue: 0});
 
-// Apply mask to remapped image
+// Create and apply mask to remove pixels with value 0 
 var mask = imgRemap.neq(0);
-var masked = imgRemap.updateMask(mask);
-Map.addLayer(masked, {min: 1, max: 2, palette: ['yellow', 'red']}, 'Masked Image');
+var maskedClass = imgRemap.updateMask(mask);
+Map.addLayer(maskedClass, {min: 1, max: 2, palette: ['yellow', 'red']}, 'Masked Classification');
 
 // -------------------- VECTORIZE AND EXPORT IMAGES -------------------------
 
@@ -376,7 +399,7 @@ for(var f=0; f<box_n; f++) {
   var feat_sub = ee.Feature(crop_boxes.toList(box_n).get(f));
   var feature_name = 'class_' + feat_sub.get('name').getInfo()
 
-  var car_smooth = ee.Image(img_red).select(['classification'])
+  var car_smooth = ee.Image(imgSmooth).select(['classification'])
   var class_viz = {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']} 
   var feat_sub = ee.Feature(crop_boxes.toList(box_n).get(f));
   var feature_name_smooth = 'class_' + feat_sub.get('name').getInfo() + "_smoothed_v2"
@@ -384,7 +407,7 @@ for(var f=0; f<box_n; f++) {
   // Export the smoothed and visualized image to Google Drive as a GeoTIFF
   Export.image.toDrive({
       image: car_smooth.visualize(class_viz),
-      folder: out_folder,
+      folder: out_dir,
       scale:10,
       description: feature_name_smooth,
       region: feat_sub,
@@ -401,7 +424,7 @@ for(var f=0; f<box_n; f++) {
 
   Export.image.toDrive({
       image: car_smooth,
-      folder: out_folder,
+      folder: out_dir,
       scale:10,
       description: feature_name_smooth,
       region: feat_sub,

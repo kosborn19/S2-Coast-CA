@@ -1,0 +1,242 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var coast_bound = ee.FeatureCollection("users/Cade92/OPC_coastalZone"),
+    beaches = ee.FeatureCollection("users/Cade92/CARI_V1_beach"),
+    dune = ee.FeatureCollection("users/Cade92/Dune"),
+    rocky = ee.FeatureCollection("users/Cade92/Rocky"),
+    pt_beach = ee.FeatureCollection("users/Cade92/pt_beach_v1"),
+    pt_dune = ee.FeatureCollection("users/Cade92/pt_dune_v1"),
+    pt_rocky = ee.FeatureCollection("users/Cade92/pt_rocky_v1"),
+    pt_veg = ee.FeatureCollection("users/Cade92/pt_veg_v1"),
+    pt_water = ee.FeatureCollection("users/Cade92/pt_water_v1"),
+    pt_whitecap = ee.FeatureCollection("users/Cade92/pt_whitecap_v1");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// -------------------------- SCRIPT INTRODUCTION --------------------------
+// Authors: Christiana Ade and Katie Osborn
+// Last Edited: 10/23/24
+// Purpose: to build and export a random forest classifier by training on 70% of data and testing on 30% to classify coastal features from Sentinel-2 images. 
+// Steps: (1) Import training points from each habitat.
+//        (2) Make a coastal mosaic from selected tiles.
+//        (3) Sample pixel values from training points on the mosaic.
+//        (4) Split data into 70% training and 30% testing.
+//        (5) Train a random forest classifier with the training data.
+//        (6) Test the classifier by classifying the testing data. Print statistics.
+//        (7) Apply the classifier to the entire composite mosaic.
+//        (8) Export training data, testing data, and random forest decision tress for use in the next script.
+
+
+// -------------------------- USER INPUT VARIABLES --------------------------
+
+// Add a path to an output folder for training partition exports.
+var Output = 'your/folder/output/path/here'; // Change to your folder path. This is where the training
+                                             // and testing partipitions will export
+
+// ----------------------- DATA PREPROCESSING -------------------------------
+
+// Load datasets and assign class values to features
+pt_beach = pt_beach.map(function(feature) {
+  return feature.set('class_n', 0);
+});
+
+pt_rocky = pt_rocky.map(function(feature) {
+  return feature.set('class_n', 1);
+});
+
+pt_veg = pt_veg.map(function(feature) {
+  return feature.set('class_n', 2);
+});
+
+pt_water = pt_water.map(function(feature) {
+  return feature.set('class_n', 3);
+});
+
+pt_whitecap = pt_whitecap.map(function(feature) {
+  return feature.set('class_n', 4);
+});
+
+pt_dune = pt_dune.map(function(feature) {
+  return feature.set('class_n', 5);
+});
+
+// ----------------------- TILE SELECTION ------------------------------------
+
+// List of selected Sentinel-2 tiles.
+var tiles = [
+  "20220224T191349_20220224T191924_T10TCM",
+  "20220520T190921_20220520T191647_T10TCL",
+  "20220224T191349_20220224T191924_T10TCK", 
+  "20220522T185919_20220522T190752_T10TDK",
+  "20220308T190231_20220308T190635_T10SDJ",
+  "20220225T184339_20220225T184402_T10SGE",
+  "20220308T190231_20220308T190635_T10SDH",
+  "20220310T185109_20220310T190102_T10SEF",
+  "20220310T185109_20220310T190102_T10SEG",
+  "20220208T185529_20220208T185828_T10SEH",
+  "20220310T185109_20220310T190102_T10SFE",
+  "20220424T184921_20220424T184922_T10SFF",
+  "20220511T183921_20220511T185047_T10SGD",
+  "20220520T190921_20220520T191647_T10TDL",
+  "20220520T190921_20220520T191647_T10TDM",
+  "20220210T184521_20220210T185123_T11SKT",
+  "20220225T184339_20220225T184402_T11SKU",
+  "20220423T182909_20220423T184417_T11SLT",
+  "20220423T182909_20220423T184417_T11SMS", 
+  "20221219T183759_20221219T183759_T11SMT"
+];
+
+// ------------------- FILTER SENTINEL-2 DATASET -----------------------------
+
+// Filter the Sentinel-2 image collection by date, selected tiles, and location
+var S2 = ee.ImageCollection("COPERNICUS/S2_SR")
+    .filterDate('2022-01-01', '2022-12-31')
+    .filter(ee.Filter.inList('system:index', tiles))        
+    .filterBounds(coast_bound);
+
+// -------------------- VEGETATION INDICES FUNCTIONS -------------------------
+
+// Function to compute vegetation indices
+var compute_indices = function(image) {
+    // calc NDVI
+  var ndvi = image.expression('(NIR-Red)/(NIR+Red)', {
+    'NIR': image.select('B8'),
+    'Red': image.select('B4')
+  }).rename('ndvi');
+    // calc NDWI
+  var ndwi = image.expression('(G-NIR)/(G+NIR)', {
+    'NIR': image.select('B8'),
+    'G': image.select('B3')
+  }).rename('ndwi');
+     // calc SAVI 
+  var savi = image.expression('((NIR - RED) / (NIR + RED + L) * (1 + L))', {
+    'NIR': image.select('B8'),
+    'RED': image.select('B4'),
+    'L': 0.5
+  }).rename('savi'); 
+    // calc ndwi2
+  var ndwi2 = image.expression('(NIR-SWIR)/(SWIR+NIR)', {
+    'NIR': image.select('B8'),
+    'SWIR': image.select('B11')
+  }).rename('ndwi2');
+    // calc MNDWI1 
+  var mndwi = image.expression('(G-SWIR1)/(G+SWIR1)', {
+    'G': image.select('B3'),
+    'SWIR1': image.select('B11')
+  }).rename('mndwi');
+   
+  return image.addBands([ndvi, ndwi, savi, ndwi2, mndwi]);
+};
+
+// ------------------- CREATE MOSAIC -----------------------------------------
+
+//clip mosaic of tiles to the coast and select bands
+var mosaic1 = S2.mosaic().clip(coast_bound).select('B.*');
+var imageVisParam = {"opacity":1,"bands":["B8","B4","B3"],"min":0,"max":3000,"gamma":0.5};
+Map.addLayer(mosaic1, imageVisParam, 'spatial mosaic', false);
+
+// Generate composite image with indices
+var composite = compute_indices(mosaic1);
+
+// ------------------------ CLASSIFICATION -----------------------------------
+
+// Merge feature classes into a single FeatureCollection.
+var newfc = pt_beach.merge(pt_rocky).merge(pt_veg).merge(pt_water).merge(pt_whitecap).merge(pt_dune);
+var classProperty = 'class_n';
+
+// Sample training data from composite image
+var training = composite.select(bands).sampleRegions({
+  collection: newfc,
+  properties: [classProperty],
+  scale: 10 // Scale of 10 meters to match pixel resolution
+});
+
+// Randomly split into training (70%) and testing (30%) datasets
+var withRandom = training.randomColumn('random');
+var split = 0.7; // We want to reserve some of the data for testing, to avoid overfitting the model.
+var trainingPartition = withRandom.filter(ee.Filter.lt('random', split));
+var testingPartition = withRandom.filter(ee.Filter.gte('random', split));
+
+// List bands for classifier input
+var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12', 'ndvi', 'ndwi', 'savi', 'ndwi2', 'mndwi'];
+
+// Train the random forest classifier with 70% of the data
+var trainedClassifier = ee.Classifier.smileRandomForest(100).train({
+  features: trainingPartition,
+  classProperty: classProperty,
+  inputProperties: bands
+});
+
+// Classify the testing dataset (30% of data) and print accuracy metrics
+var test = testingPartition.classify(trainedClassifier);
+var confusionMatrix = test.errorMatrix(classProperty, 'classification');
+print('Confusion Matrix', confusionMatrix);
+print('Accuracy:', confusionMatrix.accuracy().getInfo());
+print('Kappa:', confusionMatrix.kappa().getInfo());
+print('Producers Accuracy:', confusionMatrix.producersAccuracy().getInfo());
+print('Users Accuracy:', confusionMatrix.consumersAccuracy().getInfo());
+
+// Apply classifier to the entire composite
+var classified = composite.classify(trainedClassifier);
+Map.addLayer(classified, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']}, 'Classified Image');
+
+// -------------------------- EXPORT DATA ---------------------------------
+
+// Export training and testing partitions as GeoJSON
+Export.table.toDrive({
+  collection: trainingPartition,
+  folder: Output,
+  description: 'trainingPartition',
+  fileFormat: 'GeoJSON'
+});
+
+Export.table.toDrive({
+  collection: testingPartition,
+  folder: Output,
+  description: 'testingPartition',
+  fileFormat: 'GeoJSON'
+});
+
+// Export decision trees into your assets. Make sure you can locate this asset 
+    //in your GEE because you will need to import it in the next script
+var decisionTrees = ee.List(trainedClassifier.explain().get('trees'));
+Export.table.toAsset({
+  collection: encodeFeatureCollection(decisionTrees),
+  description: 'RF_decision_trees'
+});
+
+function encodeFeatureCollection(value) {
+  var string = ee.String.encodeJSON(value)
+  var stringLength = string.length()
+  var maxLength = 100000
+  var maxProperties = 1000
+  var values = ee.List.sequence(0, stringLength, maxLength)
+    .map(function (start) {
+      start = ee.Number(start)
+      var end = start.add(maxLength).min(stringLength)
+      return string.slice(start, end)
+    })
+    .filter(ee.Filter.neq('item', ''))
+  var numberOfProperties = values.size()
+  return ee.FeatureCollection(ee.List.sequence(0, values.size(), maxProperties)
+    .map(function (start) {
+      start = ee.Number(start)
+      var end = start.add(maxProperties).min(numberOfProperties)
+      var propertyValues = values.slice(start, end)
+      var propertyKeys = ee.List.sequence(1, propertyValues.size())
+        .map(function (i) {
+          return ee.Number(i).format('%d')
+        })
+      var properties = ee.Dictionary.fromLists(propertyKeys, propertyValues)
+      return ee.Feature(ee.Geometry.Point([0, 0]), properties)
+    }).filter(ee.Filter.notNull(['1']))
+  )
+}
+
+// ------------------------ OPTIONAL: VISUALIZE CARI POLYGONS --------------------------
+
+
+//// Add CARI Layers to map for visual analysis
+// Map.addLayer(rocky.filterBounds(area_bound), {color: 'black'}, "rocky_bound", false )
+// Map.addLayer(beaches, {color: 'blue'}, "beaches_bound", false )
+// Map.addLayer(estuarine, {color: 'yellow'}, "est_bound", false )
+// Map.addLayer(dune, {color: 'green'}, "dune_bound", false )
+// Map.addLayer(rocky, {color: 'red'}, "rocky_bound_red", false )

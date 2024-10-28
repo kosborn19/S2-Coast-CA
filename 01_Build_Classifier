@@ -1,7 +1,7 @@
 // -------------------------- SCRIPT INTRODUCTION --------------------------
-```Authors: Christiana Ade and Katie Osborn
+//```Authors: Christiana Ade and Katie Osborn
 // Purpose: Build and export a random forest classifier by training on 70% of data and testing on 30% to classify beaches and rocky shore of the
- California coastline from a 2022 mosaic of select Sentinel-2 images. 
+// California coastline from a 2022 mosaic of select Sentinel-2 images. 
 // Steps: (1) Import training points from each habitat. These points were selected using random samples of the CARI dataset and photo-interpretation. 
 //        (2) Make a coastal mosaic from previously selected tiles (list). Tiles were selected by selecting cloud free low tide images. 
 //        (3) Write functions and apply vegetation and water indexes to Sentinel-2 mosaic.
@@ -13,23 +13,23 @@
 //        (9) Export training data, testing data, and random forest decision tress for use in the next script.
 
 // User input (Below): 
-      Required: 
-        (1) Individual training data shapefiles (points) for each individual class (beach, rocky shore, vegetation, water, and white caps)
-        (2) Output data folder for saving the classifer
-        (3) Pre-selected list of Sentinel-2 images for mosaicking
-        (4) OPC boundary polygon of the coastal zone
-      Optional:
-        (1): Individual shapefiles of CARI Beaches, Dunes, and Rocky shore for visualization
+      // Required: 
+      //   (1) Individual training data shapefiles (points) for each individual class (beach, rocky shore, vegetation, water, and white caps)
+      //   (2) Output data folder for saving the classifer
+      //   (3) Pre-selected list of Sentinel-2 images for mosaicking
+      //   (4) OPC boundary polygon of the coastal zone
+      // Optional:
+      //   (1): Individual shapefiles of CARI Beaches, Dunes, and Rocky shore for visualization
 
-// Outputs (including visualizations): 
-        (1) False color infrared of Sentinel-2 mosaic (automatic display disabled)  
-        (2) Printed Confusion Matrix statistics 
-        (3) Automatic display of classification map colored by class
-         beaches (yellow), rocky shore (red), vegetation (green), water (blue), white caps (white). 
-        (4) Export training and testing partision to google drive
-        (5) Export random forest model to google drive
+// // Outputs (including visualizations): 
+//         (1) False color infrared of Sentinel-2 mosaic (automatic display disabled)  
+//         (2) Printed Confusion Matrix statistics 
+//         (3) Automatic display of classification map colored by class
+//         beaches (yellow), rocky shore (red), vegetation (green), water (blue), white caps (white). 
+//         (4) Export training and testing partision to google drive
+//         (5) Export random forest model to google drive
 
-        ```
+//         ```
 
 // -------------------------- USER INPUT VARIABLES --------------------------
 

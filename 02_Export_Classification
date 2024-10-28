@@ -37,7 +37,7 @@
 // -------------------------- USER INPUT VARIABLES --------------------------
 
 // Path to the decision tree asset (imported pre-trained model)
-//var RF_decision_trees = 'ee-katieozxc/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
+var RF_decision_trees = 'username/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
 
 // Folder for exported results
 var out_folder = 'your/folder/path/here'; // Change to your folder path

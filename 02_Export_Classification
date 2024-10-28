@@ -38,6 +38,8 @@
 
 // Path to the decision tree asset (imported pre-trained model)
 var RF_decision_trees = 'username/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
+// IMPORTANT NOTE: If you are having issues with referencing your asset directory, you can go to your asset and directly 
+// click the "Import into Script" arrow
 
 // Folder for exported results
 var out_folder = 'your/folder/path/here'; // Change to your folder path

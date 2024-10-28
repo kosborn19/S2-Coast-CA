@@ -74,7 +74,7 @@ pt_whitecap = pt_whitecap.map(function(feature) {
 
 // List of previously selected Sentinel-2 tiles.
 var tiles = [
-  "20220224T191349_20220224T191924_T10TCM",
+ "20220224T191349_20220224T191924_T10TCM",
   "20220520T190921_20220520T191647_T10TCL",
   "20220224T191349_20220224T191924_T10TCK", 
   "20220522T185919_20220522T190752_T10TDK",
@@ -94,6 +94,8 @@ var tiles = [
   "20220423T182909_20220423T184417_T11SLT",
   "20220423T182909_20220423T184417_T11SMS", 
   "20221219T183759_20221219T183759_T11SMT"
+//"20220401T183931_20220401T184945_T10SFE", //added later to fill gaps; may cause overlap issue
+//"20220929T190159_20220929T190959_T10TCK", //added later to fill gaps; may cause overlap issue
 ];
 
 // ------------------- FILTER SENTINEL-2 DATASET -----------------------------
@@ -142,7 +144,7 @@ var compute_indices = function(image) {
 
 //clip mosaic of tiles to the coast and select spectral bands
 var mosaic1 = S2.mosaic().clip(coast_bound).select('B.*');
-var imageVisParam = {"opacity":1,"bands":["B8","B4","B3"],"min":0,"max":3000,"gamma":0.5};
+
 // visualize image mosaic 
 Map.addLayer(mosaic1, imageVisParam, 'Sentinel-2 Mosaic (NIR infrared)', false);
 
@@ -154,6 +156,9 @@ var s2_input_imgs = compute_indices(mosaic1);
 // Merge feature classes into a single FeatureCollection.
 var fullfc = pt_beach.merge(pt_rocky).merge(pt_veg).merge(pt_water).merge(pt_whitecap);
 var classProperty = 'class_n';
+
+// List bands for classifier input
+var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12', 'ndvi', 'ndwi', 'savi', 'ndwi2', 'mndwi'];
 
 // Sample training data from s2_input_imgs image
 var training = s2_input_imgs.select(bands).sampleRegions({
@@ -167,9 +172,6 @@ var withRandom = training.randomColumn('random');
 var split = 0.7; // We want to reserve some of the data for testing, to avoid overfitting the model.
 var trainingPartition = withRandom.filter(ee.Filter.lt('random', split));
 var testingPartition = withRandom.filter(ee.Filter.gte('random', split));
-
-// List bands for classifier input
-var bands = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12', 'ndvi', 'ndwi', 'savi', 'ndwi2', 'mndwi'];
 
 // Train the random forest classifier with 70% of the data
 var trainedClassifier = ee.Classifier.smileRandomForest(100).train({

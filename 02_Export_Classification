@@ -20,26 +20,31 @@
         (1): Individual shapefiles of CARI Beaches, Dunes, and Rocky shore for visualization
 
 // Outputs to google drive: 
-        (1) Classification rasters with no visualzation applied (file ending: "_smoothed_noviz" )
-        (2) Classification rasters with  visualzation applied (file ending: "_smoothed_v2" )
-        (3) Polygon geojson files (file name poly.*_scale)
-   
+        (1) Classification rasters with visualization applied and no smoothing applied
+        (2) Smoothed classification rasters with no visualzation applied (file ending: "_smoothed_noviz" )
+        (2) Smoothed classification rasters with  visualzation applied (file ending: "_smoothed_v2" )
+        (3) Polygon geojson files (file name poly.*_vector)
+
+// Visualizations: 
+        (1) False color infrared of Sentinel-2 mosaic
+        (2) Display of classification map colored by class
+         beaches (yellow), rocky shore (red), vegetation (green), water (blue), white caps (white). 
+        (3) Smoothed display of classification map colored by class
+        (4) Smoothed display of rocky and beach classes only
+        (5) CARI Layers (rocky shore, beaches, dunes, estuarine) (automatic display disabled)
 
   */ 
 // -------------------------- USER INPUT VARIABLES --------------------------
 
 // Path to the decision tree asset (imported pre-trained model)
-var RF_decision_trees = 'users/yourGEEusername/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
+//var RF_decision_trees = 'ee-katieozxc/RF_decision_trees'; // Input the directory to your RF_decision_trees asset
 
 // Folder for exported results
-var out_dir = 'your/folder/output/path/here'; // Change to your folder path
+var out_folder = 'your/folder/path/here'; // Change to your folder path
 
-// Define scales for converting from raster data to vector
-    // The scale affects the precision and size of the vector features that are generated
-    // Current settings export at a scale of 5 and 10 for comparison
-var scale_list = ee.List.sequence(5, 10, 5); // list of scale values and increment
-var scale_list_str = ee.List(['5', '10']); // scale values in string format
-var scale_n = 2; // number of scales in list
+// Define scale size for converting from raster data to vector
+var scale_size = 5 // The scale affects the precision and size of the vector features that are generated
+
 
 var box_n = 10; // number of boxes along the coast. 
                   // NOTE: You do not need to change this unless you want to look at an area other than the CA coast
@@ -269,28 +274,30 @@ var crop_boxes = box1.merge(box2).merge(box3).merge(box4).merge(box5)
 // ----------------------- TILE SELECTION ------------------------------------
 
 // List of Sentinel-2 tiles for classification
-var tiles = [  
-  "20220224T191349_20220224T191924_T10TCM",
-  "20220308T190231_20220308T190635_T10TDL", 
+// List of previously selected Sentinel-2 tiles.
+var tiles = [
+ "20220224T191349_20220224T191924_T10TCM",
   "20220520T190921_20220520T191647_T10TCL",
-  "20220224T191349_20220224T191924_T10TCK",  
+  "20220224T191349_20220224T191924_T10TCK", 
   "20220522T185919_20220522T190752_T10TDK",
   "20220308T190231_20220308T190635_T10SDJ",
+  "20220225T184339_20220225T184402_T10SGE",
   "20220308T190231_20220308T190635_T10SDH",
-  "20220310T185109_20220310T190102_T10SEG",
-  "20220223T185401_20220223T190247_T10SEH", 
   "20220310T185109_20220310T190102_T10SEF",
-  "20220310T185109_20220310T190102_T10SFF", 
+  "20220310T185109_20220310T190102_T10SEG",
+  "20220208T185529_20220208T185828_T10SEH",
   "20220310T185109_20220310T190102_T10SFE",
-  "20221112T184619_20221112T184620_T10SGD",
-  "20220511T183921_20220511T185047_T10SGC",
-  "20220225T184339_20220225T184402_T11SKU",
+  "20220424T184921_20220424T184922_T10SFF",
+  "20220511T183921_20220511T185047_T10SGD",
+  "20220520T190921_20220520T191647_T10TDL",
+  "20220520T190921_20220520T191647_T10TDM",
   "20220210T184521_20220210T185123_T11SKT",
+  "20220225T184339_20220225T184402_T11SKU",
   "20220423T182909_20220423T184417_T11SLT",
-  "20220312T184151_20220312T185510_T11SKS",
-  "20221219T183759_20221219T183759_T11SLS",
-  "20221219T183759_20221219T183759_T11SMT",
-  "20220123T183649_20220123T183643_T11SMS"
+  "20220423T182909_20220423T184417_T11SMS", 
+  "20221219T183759_20221219T183759_T11SMT"
+//"20220401T183931_20220401T184945_T10SFE", //added later to fill gaps; may cause overlap issue
+//"20220929T190159_20220929T190959_T10TCK", //added later to fill gaps; may cause overlap issue
 ];
 
 // ------------------- FILTER SENTINEL-2 DATASET -----------------------------
@@ -371,7 +378,7 @@ function decodeFeatureCollection(featureCollection) {
 
 // ------------------------ SMOOTHING AND REMAPPING --------------------------
 // Square smoothing window of 2 pixels on classifier 
-var imgSmooth = classification.focalMode(2, 'square');
+var img_smooth = classification.focalMode(2, 'square');
 Map.addLayer(img_smooth, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']}, 'Smoothed Classification');
 
 // Remove all classes besides beach and rocky shore 
@@ -379,7 +386,7 @@ Map.addLayer(img_smooth, {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'b
 var fromList = [0, 1, 2, 3, 4];
 var toList = [1, 2, 0, 0, 0];
 // Apply remmapping
-var imgRemap = imgSmooth.remap({from: fromList, to: toList, defaultValue: 0});
+var imgRemap = img_smooth.remap({from: fromList, to: toList, defaultValue: 0});
 
 // Create and apply mask to remove pixels with value 0 
 var mask = imgRemap.neq(0);
@@ -393,24 +400,37 @@ Map.addLayer(maskedClass, {min: 1, max: 2, palette: ['yellow', 'red']}, 'Masked 
 
 for(var f=0; f<box_n; f++) {
   
-  var car = ee.Image(classification).select(['classification'])
-  var projection = car.projection().getInfo();
+  var class_region = ee.Image(classification).select(['classification'])
+  var projection = class_region.projection().getInfo();
   var class_viz = {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']} 
-  var feat_sub = ee.Feature(crop_boxes.toList(box_n).get(f));
-  var feature_name = 'class_' + feat_sub.get('name').getInfo()
+  var feature_region = ee.Feature(crop_boxes.toList(box_n).get(f));
+  var feature_name = 'class_' + feature_region.get('name').getInfo() + "_no_smoothing_viz"
 
-  var car_smooth = ee.Image(imgSmooth).select(['classification'])
-  var class_viz = {min: 0, max: 4, palette: ['yellow', 'red', 'green', 'blue', 'white']} 
-  var feat_sub = ee.Feature(crop_boxes.toList(box_n).get(f));
-  var feature_name_smooth = 'class_' + feat_sub.get('name').getInfo() + "_smoothed_v2"
+// Export visualized image without smoothing to Google Drive as a GeoTIFF
+
+  Export.image.toDrive({
+      image: class_region.visualize(class_viz),
+      folder: out_folder,
+      scale:10,
+      description: feature_name,
+      region: feature_region,
+      fileFormat: 'GeoTIFF',
+      // formatOptions: {
+      //   cloudOptimized: true
+      // },
+        maxPixels:  1e13
+    })
+
+  var class_region_smooth = ee.Image(img_smooth).select(['classification'])
+  var feature_name_smooth = 'class_' + feature_region.get('name').getInfo() + "_smoothed_viz"
   
   // Export the smoothed and visualized image to Google Drive as a GeoTIFF
   Export.image.toDrive({
-      image: car_smooth.visualize(class_viz),
-      folder: out_dir,
+      image: class_region_smooth.visualize(class_viz),
+      folder: out_folder,
       scale:10,
       description: feature_name_smooth,
-      region: feat_sub,
+      region: feature_region,
       fileFormat: 'GeoTIFF',
       // formatOptions: {
       //   cloudOptimized: true
@@ -420,14 +440,14 @@ for(var f=0; f<box_n; f++) {
     
   // Export the smoothed classification without any visualization
   // This export will contain the raw classification values, useful for further analysis
-  var feature_name_smooth = 'class_' + feat_sub.get('name').getInfo() + "_smoothed_noviz"
+  var feature_name_smooth = 'class_' + feature_region.get('name').getInfo() + "_smoothed_no_viz"
 
   Export.image.toDrive({
-      image: car_smooth,
-      folder: out_dir,
+      image: class_region_smooth,
+      folder: out_folder,
       scale:10,
       description: feature_name_smooth,
-      region: feat_sub,
+      region: feature_region,
       fileFormat: 'GeoTIFF',
       // formatOptions: {
       //   cloudOptimized: true
@@ -435,11 +455,24 @@ for(var f=0; f<box_n; f++) {
         maxPixels:  1e13
     })
   
-    // Loop through different scales
-    for(var z=0; z < scale_n; z++) {
-      var scale_size = scale_list.get(z)
-      var scale_export_name = 'poly' + feature_name + '_scale'  + scale_list_str.get(z).getInfo()
-  }
+  // Export beach and rocky shore classiffications as vectors
+     
+      var vector_export_name = 'vector_' + 'class_' + feature_region.get('name').getInfo()
+      var feature_region_geom = feature_region.geometry()
+      
+      var class_vector = maskedClass.reduceToVectors({
+      reducer: ee.Reducer.countEvery(), 
+      geometry: feature_region_geom, 
+      scale: scale_size,
+      maxPixels: 1e13
+      });
+    
+      Export.table.toDrive({
+        collection: ee.FeatureCollection(class_vector), 
+        folder: out_folder, 
+        description: vector_export_name,
+        fileFormat: 'GeoJSON'
+      });
 }
 
 
@@ -447,11 +480,11 @@ for(var f=0; f<box_n; f++) {
 
 
 //// Add CARI Layers to map for visual analysis
-// Map.addLayer(rocky.filterBounds(area_bound), {color: 'black'}, "rocky_bound", false )
+// Map.addLayer(rocky.filterBounds(coast_bound), {color: 'black'}, "rocky_bound", false )
 // Map.addLayer(beaches, {color: 'blue'}, "beaches_bound", false )
 // Map.addLayer(estuarine, {color: 'yellow'}, "est_bound", false )
 // Map.addLayer(dune, {color: 'green'}, "dune_bound", false )
 // Map.addLayer(rocky, {color: 'red'}, "rocky_bound_red", false )
 
 // Center map
-Map.centerObject(coast_bound, 12) 
+Map.centerObject(coast_bound, 12)

@@ -170,7 +170,7 @@ var training = s2_input_imgs.select(bands).sampleRegions({
 
 // Randomly split into training (70%) and testing (30%) datasets
 var withRandom = training.randomColumn('random');
-var split = 0.7; // We want to reserve some of the data for testing, to avoid overfitting the model.
+var split = 0.7; // We want to reserve some of the data for validation. 
 var trainingPartition = withRandom.filter(ee.Filter.lt('random', split));
 var testingPartition = withRandom.filter(ee.Filter.gte('random', split));
 

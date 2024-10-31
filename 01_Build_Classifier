@@ -144,6 +144,7 @@ var compute_indices = function(image) {
 
 //clip mosaic of tiles to the coast and select spectral bands
 var mosaic1 = S2.mosaic().clip(coast_bound).select('B.*');
+var imageVisParam = {"opacity":1,"bands":["B8","B4","B3"],"min":0,"max":3000,"gamma":0.5};
 
 // visualize image mosaic 
 Map.addLayer(mosaic1, imageVisParam, 'Sentinel-2 Mosaic (NIR infrared)', false);

@@ -144,6 +144,7 @@ var compute_indices = function(image) {
 
 //clip mosaic of tiles to the coast and select spectral bands
 var mosaic1 = S2.mosaic().clip(coast_bound).select('B.*');
+var imageVisParam = {"opacity":1,"bands":["B8","B4","B3"],"min":0,"max":3000,"gamma":0.5};
 
 // visualize image mosaic 
 Map.addLayer(mosaic1, imageVisParam, 'Sentinel-2 Mosaic (NIR infrared)', false);
@@ -169,7 +170,7 @@ var training = s2_input_imgs.select(bands).sampleRegions({
 
 // Randomly split into training (70%) and testing (30%) datasets
 var withRandom = training.randomColumn('random');
-var split = 0.7; // We want to reserve some of the data for testing, to avoid overfitting the model.
+var split = 0.7; // We want to reserve some of the data for validation. 
 var trainingPartition = withRandom.filter(ee.Filter.lt('random', split));
 var testingPartition = withRandom.filter(ee.Filter.gte('random', split));
 
